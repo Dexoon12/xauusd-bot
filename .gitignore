@@ -1,0 +1,17 @@
+# Datos privados
+.env
+bot_memoria.db
+
+# Archivos temporales Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Archivos que no necesitas en Railway
+dashboard_final.py
+dashboard_live.py
+dashboard_v2.py
+dashboard.py
+grafico.py
+test_mt5.py
+fase1_datos.py
