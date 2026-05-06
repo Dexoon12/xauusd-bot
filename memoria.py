@@ -1,7 +1,13 @@
 import sqlite3
 import json
 from datetime import datetime, timezone, timedelta
-import MetaTrader5 as mt5
+
+try:
+    import MetaTrader5 as mt5
+    MT5_DISPONIBLE = True
+except ImportError:
+    MT5_DISPONIBLE = False
+    mt5 = None
 
 DB_PATH = "bot_memoria.db"
 
@@ -124,12 +130,19 @@ def verificar_señales_pendientes():
         return
 
     # Precio actual
-    tick = mt5.symbol_info_tick("XAUUSD")
-    if not tick:
-        conn.close()
-        return
+    precio_actual = None
+    if MT5_DISPONIBLE and mt5:
+        tick = mt5.symbol_info_tick("XAUUSD")
+        if tick:
+            precio_actual = tick.bid
 
-    precio_actual = tick.bid
+    if not precio_actual:
+        try:
+            import yfinance as yf
+            precio_actual = yf.Ticker("GC=F").fast_info["last_price"]
+        except Exception:
+            conn.close()
+            return
     ahora         = datetime.now(timezone.utc)
 
     for señal in pendientes:

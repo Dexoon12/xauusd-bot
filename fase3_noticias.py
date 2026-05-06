@@ -1,6 +1,10 @@
 import requests
 from datetime import datetime, timezone, timedelta
 from gnews import GNews
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # ─── CONFIG ──────────────────────────────────────────────
 NEWSAPI_KEY = "TU_NEWSAPI_KEY"  # lo dejamos por si sirve después
