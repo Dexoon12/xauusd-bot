@@ -1,6 +1,12 @@
-import MetaTrader5 as mt5
 import pandas as pd
 import numpy as np
+
+try:
+    import MetaTrader5 as mt5
+    MT5_DISPONIBLE = True
+except ImportError:
+    MT5_DISPONIBLE = False
+    mt5 = None
 
 # ─── OBTENER VELAS POR TIMEFRAME ─────────────────────────
 def get_velas(simbolo="XAUUSD", timeframe=mt5.TIMEFRAME_M15, cantidad=200):
