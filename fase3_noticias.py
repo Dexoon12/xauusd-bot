@@ -59,7 +59,13 @@ def obtener_calendario():
     return eventos
 
 
-def alerta_noticia_proxima(eventos, minutos=60):
+def alerta_noticia_proxima(eventos, minutos=60, minutos_post=120):
+    """
+    Detecta eventos de alto impacto:
+    - Hasta `minutos` min ANTES  (diff positivo)
+    - Hasta `minutos_post` min DESPUÉS (diff negativo) — zona de volatilidad post-news
+    Retorna (hay_noticia, evento, diff_minutos).  diff < 0 = evento ya ocurrió.
+    """
     ahora = datetime.now(timezone.utc)
     for e in eventos:
         if not e["es_hoy"]:
@@ -72,11 +78,11 @@ def alerta_noticia_proxima(eventos, minutos=60):
                 year=ahora.year, month=ahora.month, day=ahora.day
             )
             diff = (hora_evento - ahora).total_seconds() / 60
-            if 0 <= diff <= minutos:
-                return True, e
+            if -minutos_post <= diff <= minutos:
+                return True, e, diff
         except Exception:
             continue
-    return False, None
+    return False, None, None
 
 
 # ─── 2. NOTICIAS VIA GOOGLE NEWS (gnews) ─────────────────
@@ -217,9 +223,11 @@ def score_final(score_ict, sentimiento_noticias, calendario):
     else:
         not_long = not_short = 50
 
-    hay_noticia, evento_proximo = alerta_noticia_proxima(calendario)
-    cal_long  = 40 if hay_noticia else 55
-    cal_short = 40 if hay_noticia else 55
+    hay_noticia, evento_proximo, diff_noticia = alerta_noticia_proxima(calendario)
+    if hay_noticia:
+        cal_long = cal_short = 30 if diff_noticia is not None and diff_noticia < 0 else 40
+    else:
+        cal_long = cal_short = 55
 
     final_long  = (ict_long  * 0.60) + (not_long  * 0.25) + (cal_long  * 0.15)
     final_short = (ict_short * 0.60) + (not_short * 0.25) + (cal_short * 0.15)

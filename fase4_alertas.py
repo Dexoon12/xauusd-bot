@@ -115,8 +115,13 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
     not_long  = not_score
     not_short = 100 - not_score
 
-    hay_noticia, evento_proximo = alerta_noticia_proxima(calendario)
-    cal_factor = 0.8 if hay_noticia else 1.0
+    hay_noticia, evento_proximo, diff_noticia = alerta_noticia_proxima(calendario)
+    if hay_noticia:
+        # Post-evento (diff < 0): volatilidad alta, penalización fuerte
+        # Pre-evento  (diff > 0): precaución, penalización moderada
+        cal_factor = 0.5 if diff_noticia is not None and diff_noticia < 0 else 0.8
+    else:
+        cal_factor = 1.0
 
     final_long  = ((ict_long  * 0.60) + (not_long  * 0.25) +
                    50 * 0.15) * cal_factor

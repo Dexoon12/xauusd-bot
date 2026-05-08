@@ -206,9 +206,10 @@ def loop_noticias_alertas():
                   f"{sf['tfs_confluencia']}/4 TFs")
 
             # Evento económico próximo
-            hay_noticia, evento = alerta_noticia_proxima(calendario)
+            hay_noticia, evento, diff_min = alerta_noticia_proxima(calendario)
             if hay_noticia and evento:
-                print(f"  ⚠️  EVENTO PRÓXIMO: {evento['titulo']} "
+                estado_news = "YA OCURRIÓ" if diff_min is not None and diff_min < 0 else "PRÓXIMO"
+                print(f"  ⚠️  EVENTO {estado_news}: {evento['titulo']} "
                       f"a las {evento['hora']}")
 
             # ¿Cumple condiciones para alertar?
