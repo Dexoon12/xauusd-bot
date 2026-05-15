@@ -230,7 +230,18 @@ def detectar_liquidez(df, lookback=50, tolerancia=0.5):
     return zonas
 
 
-# ─── 5. SCORE MULTI-TIMEFRAME ────────────────────────────
+# ─── 5. RSI ──────────────────────────────────────────────
+def calcular_rsi(serie, periodo=14):
+    delta    = serie.diff()
+    ganancia = delta.clip(lower=0).rolling(periodo).mean()
+    perdida  = (-delta.clip(upper=0)).rolling(periodo).mean()
+    rs       = ganancia / perdida.replace(0, float("nan"))
+    rsi      = 100 - (100 / (1 + rs))
+    val      = rsi.iloc[-1]
+    return round(val, 1) if not np.isnan(val) else 50.0
+
+
+# ─── 6. SCORE MULTI-TIMEFRAME ────────────────────────────
 def calcular_score(simbolo="XAUUSD"):
     # Timeframes — usa valores numéricos como fallback si MT5 no está
     if MT5_DISPONIBLE and mt5:
@@ -264,6 +275,7 @@ def calcular_score(simbolo="XAUUSD"):
         precio = df["close"].iloc[-1]
         ma20   = df["close"].rolling(20).mean().iloc[-1]
         ma50   = df["close"].rolling(50).mean().iloc[-1]
+        rsi    = calcular_rsi(df["close"])
 
         tendencia = "alcista" if ma20 > ma50 else "bajista"
 
@@ -286,6 +298,10 @@ def calcular_score(simbolo="XAUUSD"):
         if bos_alcista:  score_long  += 6 * peso
         if bos_bajista:  score_short += 6 * peso
 
+        # RSI momentum: solo puntúa cuando hay convicción clara (>55 o <45)
+        if rsi > 55:   score_long  += 3 * peso
+        elif rsi < 45: score_short += 3 * peso
+
         resultado[nombre] = {
             "tendencia":    tendencia,
             "ob_alcistas":  len(ob_alcistas),
@@ -294,6 +310,7 @@ def calcular_score(simbolo="XAUUSD"):
             "fvg_bajistas": len(fvg_bajistas),
             "bos_alcista":  bos_alcista,
             "bos_bajista":  bos_bajista,
+            "rsi":          rsi,
             "swing_highs":  swing_highs,
             "swing_lows":   swing_lows,
             "obs":          obs,

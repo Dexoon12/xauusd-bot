@@ -267,7 +267,7 @@ def loop_noticias_alertas():
 
 # ─── LOOP VERIFICACIÓN ───────────────────────────────────
 def loop_verificacion():
-    """Verifica TP/SL de señales pendientes cada 5 min"""
+    """Verifica TP/SL de señales pendientes cada 1 min"""
     print("Loop verificación iniciado")
     time.sleep(60)
     while True:
@@ -275,7 +275,7 @@ def loop_verificacion():
             verificar_señales_pendientes()
         except Exception as e:
             print(f"Error verificación: {e}")
-        time.sleep(300)
+        time.sleep(60)
 
 # ─── LOOP REPORTE DIARIO ─────────────────────────────────
 def loop_reporte_diario():

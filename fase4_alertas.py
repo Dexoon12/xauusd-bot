@@ -15,7 +15,7 @@ ANTHROPIC_KEY    = os.getenv("ANTHROPIC_KEY",    "")
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN",   "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-SCORE_MINIMO     = 72
+SCORE_MINIMO     = 78
 COOLDOWN_MINUTOS = 30
 
 # ─── ESTADO ──────────────────────────────────────────────
@@ -123,9 +123,9 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
     else:
         cal_factor = 1.0
 
-    final_long  = ((ict_long  * 0.60) + (not_long  * 0.25) +
+    final_long  = ((ict_long  * 0.70) + (not_long  * 0.15) +
                    50 * 0.15) * cal_factor
-    final_short = ((ict_short * 0.60) + (not_short * 0.25) +
+    final_short = ((ict_short * 0.70) + (not_short * 0.15) +
                    50 * 0.15) * cal_factor
 
     total     = final_long + final_short
@@ -282,6 +282,6 @@ def puede_alertar(direccion):
     diff = (ahora - ultima_alerta["tiempo"]).total_seconds() / 60
     if ultima_alerta["direccion"] == direccion and diff < COOLDOWN_MINUTOS:
         return False
-    if ultima_alerta["direccion"] != direccion and diff < 10:
+    if ultima_alerta["direccion"] != direccion and diff < 30:
         return False
     return True
