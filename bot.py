@@ -21,16 +21,17 @@ from fase3_noticias import (
 from fase4_alertas import (
     analizar_sentimiento_ia, calcular_score_final,
     calcular_setup, formatear_alerta, enviar_telegram,
-    puede_alertar, ultima_alerta
+    puede_alertar, ultima_alerta, en_sesion_activa
 )
 from memoria import (
     inicializar_db, guardar_señal,
-    verificar_señales_pendientes, imprimir_reporte
+    verificar_señales_pendientes, imprimir_reporte,
+    obtener_score_minimo_dinamico, imprimir_analisis_eficacia,
 )
 
 # ─── CONFIG ──────────────────────────────────────────────
-SIMBOLO      = "XAUUSD"
-SCORE_MINIMO = 72
+SIMBOLO = "XAUUSD"
+SCORE_MINIMO_BASE = 72  # ajustado dinámicamente según win rate histórico
 
 # ─── ESTADO GLOBAL ───────────────────────────────────────
 estado = {
@@ -213,48 +214,49 @@ def loop_noticias_alertas():
                       f"a las {evento['hora']}")
 
             # ¿Cumple condiciones para alertar?
-            precio = estado["precio"]
+            precio      = estado["precio"]
+            score_min   = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
+            en_sesion   = en_sesion_activa()
             condiciones = (
-                sf["score"] >= SCORE_MINIMO and
+                sf["score"] >= score_min and
                 sf["confianza"] in ["ALTA", "MEDIA"] and
                 sf["tfs_confluencia"] >= 2 and
                 precio > 0 and
+                en_sesion and
                 puede_alertar(sf["direccion"])
             )
 
             if condiciones:
                 print(f"\n🚨 CONDICIONES CUMPLIDAS — enviando alerta")
 
-                setup   = calcular_setup(
-                    precio, sf["direccion"], score_ict
-                )
+                atr   = score_ict.get("atr_m15", 5.0)
+                setup = calcular_setup(precio, sf["direccion"], score_ict)
                 mensaje = formatear_alerta(
                     sf, setup, sentimiento_ia, score_ict, precio
                 )
 
-                # Enviar a Telegram
                 enviar_telegram(mensaje)
                 cache["alertas_hoy"] += 1
 
-                # Guardar en memoria
-                señal_id = guardar_señal(
-                    sf, setup, sentimiento_ia, score_ict
-                )
+                señal_id = guardar_señal(sf, setup, sentimiento_ia, score_ict, atr)
                 print(f"  Señal guardada con ID: {señal_id}")
+                print(f"  Tipo entrada: {setup.get('tipo_entrada')} | ATR: {atr:.2f}")
                 print(f"  Total alertas hoy: {cache['alertas_hoy']}")
 
-                # Actualizar cooldown
                 ultima_alerta["tiempo"]    = datetime.now(timezone.utc)
                 ultima_alerta["direccion"] = sf["direccion"]
 
             else:
                 razones = []
-                if sf["score"] < SCORE_MINIMO:
-                    razones.append(f"score {sf['score']}% < {SCORE_MINIMO}%")
+                score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
+                if sf["score"] < score_min:
+                    razones.append(f"score {sf['score']}% < {score_min}%")
                 if sf["confianza"] not in ["ALTA", "MEDIA"]:
                     razones.append(f"confianza {sf['confianza']}")
                 if sf["tfs_confluencia"] < 2:
                     razones.append(f"solo {sf['tfs_confluencia']}/4 TFs")
+                if not en_sesion_activa():
+                    razones.append("fuera de sesión Londres/NY")
                 if not puede_alertar(sf["direccion"]):
                     razones.append("en cooldown")
                 print(f"  Sin señal: {' | '.join(razones)}")
@@ -313,7 +315,10 @@ def loop_reporte_diario():
                         f"🕐 {ahora.strftime('%d/%m/%Y')}"
                     )
                     enviar_telegram(msg)
-                    cache["alertas_hoy"] = 0  # resetea contador
+                    cache["alertas_hoy"] = 0
+
+                # Imprime análisis de eficacia en consola (no lo enviamos por Telegram para no saturar)
+                imprimir_analisis_eficacia()
 
                 time.sleep(61)  # evita doble envío
         except Exception as e:
@@ -342,6 +347,10 @@ def loop_status():
             if sf:
                 print(f"  Score:   {sf['direccion']} {sf['score']}% "
                       f"| {sf['confianza']}")
+            sesion = "✅ Londres/NY" if en_sesion_activa() else "⏸ Fuera de sesión"
+            score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
+            print(f"  Sesión:  {sesion}")
+            print(f"  Umbral:  {score_min}% (dinámico)")
             print(f"  Alertas hoy: {cache['alertas_hoy']}")
             print(f"{'─'*50}\n")
         except Exception:

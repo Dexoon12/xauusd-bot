@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 from fase3_noticias import alerta_noticia_proxima
 
-# Carga variables de entorno
 load_dotenv()
 
 # ─── CONFIG ──────────────────────────────────────────────
@@ -20,6 +19,16 @@ COOLDOWN_MINUTOS = 30
 
 # ─── ESTADO ──────────────────────────────────────────────
 ultima_alerta = {"tiempo": None, "direccion": None}
+
+
+# ─── SESIÓN ACTIVA ────────────────────────────────────────
+# Solo alertamos en sesión Londres (07-11 UTC) y Nueva York (13-17 UTC).
+# Operar fuera de estas ventanas aumenta falsas señales por baja liquidez.
+def en_sesion_activa():
+    ahora = datetime.now(timezone.utc)
+    h = ahora.hour + ahora.minute / 60.0
+    return (7.0 <= h < 11.0) or (13.0 <= h < 17.0)
+
 
 # ─── 1. SENTIMIENTO CON CLAUDE ───────────────────────────
 def analizar_sentimiento_ia(noticias):
@@ -81,12 +90,9 @@ El score va de 0 a 100 donde:
                 texto = texto[4:]
 
         data      = json.loads(texto)
-        alcistas  = sum(1 for a in data["analisis"]
-                       if a["sentimiento"] == "ALCISTA")
-        bajistas  = sum(1 for a in data["analisis"]
-                       if a["sentimiento"] == "BAJISTA")
-        neutrales = sum(1 for a in data["analisis"]
-                       if a["sentimiento"] == "NEUTRAL")
+        alcistas  = sum(1 for a in data["analisis"] if a["sentimiento"] == "ALCISTA")
+        bajistas  = sum(1 for a in data["analisis"] if a["sentimiento"] == "BAJISTA")
+        neutrales = sum(1 for a in data["analisis"] if a["sentimiento"] == "NEUTRAL")
 
         return {
             "direccion": data["direccion_global"].lower(),
@@ -104,6 +110,10 @@ El score va de 0 a 100 donde:
 
 
 # ─── 2. SCORE FINAL ──────────────────────────────────────
+# Cambios vs versión anterior:
+# - Eliminada constante artificial 50*0.15 que inflaba scores débiles
+# - Pesos limpios: ICT 70% + sentimiento IA 30%
+# - Umbrales de confianza ligeramente subidos para más calidad
 def calcular_score_final(score_ict, sentimiento_ia, calendario):
     ict_dir   = score_ict["direccion"]
     ict_score = score_ict["score"]
@@ -117,16 +127,13 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
 
     hay_noticia, evento_proximo, diff_noticia = alerta_noticia_proxima(calendario)
     if hay_noticia:
-        # Post-evento (diff < 0): volatilidad alta, penalización fuerte
-        # Pre-evento  (diff > 0): precaución, penalización moderada
         cal_factor = 0.5 if diff_noticia is not None and diff_noticia < 0 else 0.8
     else:
         cal_factor = 1.0
 
-    final_long  = ((ict_long  * 0.70) + (not_long  * 0.15) +
-                   50 * 0.15) * cal_factor
-    final_short = ((ict_short * 0.70) + (not_short * 0.15) +
-                   50 * 0.15) * cal_factor
+    # Pesos limpios: ICT 70%, noticias IA 30%
+    final_long  = (ict_long  * 0.70 + not_long  * 0.30) * cal_factor
+    final_short = (ict_short * 0.70 + not_short * 0.30) * cal_factor
 
     total     = final_long + final_short
     pct_long  = round((final_long  / total) * 100)
@@ -145,8 +152,8 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
            (direccion == "SHORT" and data["tendencia"] == "bajista")
     )
 
-    confianza = "ALTA"  if score_val >= 75 and tfs_confluencia >= 3 else \
-                "MEDIA" if score_val >= 65 and tfs_confluencia >= 2 else "BAJA"
+    confianza = "ALTA"  if score_val >= 78 and tfs_confluencia >= 3 else \
+                "MEDIA" if score_val >= 70 and tfs_confluencia >= 2 else "BAJA"
 
     return {
         "direccion":       direccion,
@@ -161,51 +168,89 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
 
 
 # ─── 3. SETUP ENTRY/SL/TP ────────────────────────────────
+# Cambios vs versión anterior:
+# - SL basado en ATR (1.5x) en lugar de 8 pts fijos
+# - Entrada en nivel del OB más cercano (LIMIT) cuando hay estructura
+# - tipo_entrada: "LIMIT" (en OB/FVG) o "MARKET" (sin estructura cercana)
+# - TP usa FVG contrario o nivel swing si no hay FVG
 def calcular_setup(precio_actual, direccion, score_ict):
     tf_data = score_ict["por_tf"].get("M15", {})
     obs     = tf_data.get("obs",  [])
     fvgs    = tf_data.get("fvgs", [])
+    atr     = tf_data.get("atr",  score_ict.get("atr_m15", 5.0))
     spread  = 0.20
 
     if direccion == "LONG":
-        entry       = round(precio_actual + spread, 2)
-        ob_alcistas = [o for o in obs
-                       if o["tipo"] == "alcista" and
-                       not o["mitigado"] and
-                       o["low"] < precio_actual]
-        sl = round(max(ob_alcistas, key=lambda x: x["low"])["low"] - 0.5, 2) \
-             if ob_alcistas else round(entry - 8, 2)
+        # Busca el OB alcista no mitigado más cercano por debajo del precio
+        ob_validos = [o for o in obs
+                      if o["tipo"] == "alcista" and not o["mitigado"]
+                      and o["high"] <= precio_actual]
 
+        if ob_validos:
+            ob_entry     = max(ob_validos, key=lambda x: x["high"])
+            entry        = round(ob_entry["high"] + spread, 2)
+            sl           = round(ob_entry["low"] - atr * 0.2, 2)
+            tipo_entrada = "LIMIT"
+        else:
+            entry        = round(precio_actual + spread, 2)
+            sl           = round(entry - atr * 1.5, 2)
+            tipo_entrada = "MARKET"
+
+        # TP: FVG bajista más cercano por encima
         fvg_arriba = [f for f in fvgs
-                      if f["tipo"] == "bajista" and
-                      not f["llenado"] and
-                      f["low"] > precio_actual]
-        tp = round(min(fvg_arriba, key=lambda x: x["low"])["low"], 2) \
-             if fvg_arriba else round(entry + abs(entry - sl) * 2, 2)
+                      if f["tipo"] == "bajista" and not f["llenado"]
+                      and f["low"] > precio_actual]
+        if fvg_arriba:
+            tp = round(min(fvg_arriba, key=lambda x: x["low"])["low"], 2)
+        else:
+            # Usa nivel BOS alcista como objetivo, o 2R mínimo
+            nivel_bos = tf_data.get("nivel_bos_alcista")
+            if nivel_bos and nivel_bos > precio_actual:
+                tp = round(nivel_bos, 2)
+            else:
+                tp = round(entry + abs(entry - sl) * 2.0, 2)
 
-    else:
-        entry       = round(precio_actual, 2)
-        ob_bajistas = [o for o in obs
-                       if o["tipo"] == "bajista" and
-                       not o["mitigado"] and
-                       o["high"] > precio_actual]
-        sl = round(min(ob_bajistas, key=lambda x: x["high"])["high"] + 0.5, 2) \
-             if ob_bajistas else round(entry + 8, 2)
+    else:  # SHORT
+        ob_validos = [o for o in obs
+                      if o["tipo"] == "bajista" and not o["mitigado"]
+                      and o["low"] >= precio_actual]
 
+        if ob_validos:
+            ob_entry     = min(ob_validos, key=lambda x: x["low"])
+            entry        = round(ob_entry["low"], 2)
+            sl           = round(ob_entry["high"] + atr * 0.2, 2)
+            tipo_entrada = "LIMIT"
+        else:
+            entry        = round(precio_actual, 2)
+            sl           = round(entry + atr * 1.5, 2)
+            tipo_entrada = "MARKET"
+
+        # TP: FVG alcista más cercano por debajo
         fvg_abajo = [f for f in fvgs
-                     if f["tipo"] == "alcista" and
-                     not f["llenado"] and
-                     f["high"] < precio_actual]
-        tp = round(max(fvg_abajo, key=lambda x: x["high"])["high"], 2) \
-             if fvg_abajo else round(entry - abs(entry - sl) * 2, 2)
+                     if f["tipo"] == "alcista" and not f["llenado"]
+                     and f["high"] < precio_actual]
+        if fvg_abajo:
+            tp = round(max(fvg_abajo, key=lambda x: x["high"])["high"], 2)
+        else:
+            nivel_bos = tf_data.get("nivel_bos_bajista")
+            if nivel_bos and nivel_bos < precio_actual:
+                tp = round(nivel_bos, 2)
+            else:
+                tp = round(entry - abs(entry - sl) * 2.0, 2)
 
     riesgo = round(abs(entry - sl), 2)
     reward = round(abs(entry - tp), 2)
     rr     = round(reward / riesgo, 1) if riesgo > 0 else 0
 
     return {
-        "entry": entry, "sl": sl, "tp": tp,
-        "riesgo": riesgo, "reward": reward, "rr": rr
+        "entry":        entry,
+        "sl":           sl,
+        "tp":           tp,
+        "riesgo":       riesgo,
+        "reward":       reward,
+        "rr":           rr,
+        "tipo_entrada": tipo_entrada,
+        "atr":          round(atr, 2),
     }
 
 
@@ -227,11 +272,12 @@ def enviar_telegram(mensaje):
         print(f"  Error enviando Telegram: {e}")
 
 
-def formatear_alerta(score_final, setup, sentimiento_ia,
-                     score_ict, precio_actual):
-    emoji_dir  = "🟢" if score_final["direccion"] == "LONG" else "🔴"
-    emoji_conf = "🔥" if score_final["confianza"] == "ALTA"  else \
-                 "⚡" if score_final["confianza"] == "MEDIA" else "⚠️"
+def formatear_alerta(score_final, setup, sentimiento_ia, score_ict, precio_actual):
+    emoji_dir   = "🟢" if score_final["direccion"] == "LONG" else "🔴"
+    emoji_conf  = "🔥" if score_final["confianza"] == "ALTA"  else \
+                  "⚡" if score_final["confianza"] == "MEDIA" else "⚠️"
+    emoji_entry = "🎯" if setup.get("tipo_entrada") == "LIMIT" else "⚡"
+    tipo_txt    = "LIMIT" if setup.get("tipo_entrada") == "LIMIT" else "MARKET"
 
     tf_lineas = ""
     for tf, data in score_ict["por_tf"].items():
@@ -261,11 +307,12 @@ TFs en confluencia: {score_final['tfs_confluencia']}/4
   🟢 {sentimiento_ia['alcistas']} | 🔴 {sentimiento_ia['bajistas']}
 {noticia_txt}
 💰 <b>Setup sugerido</b>
-  Precio: {precio_actual}
-  Entry:  <b>{setup['entry']}</b>
-  SL:     {setup['sl']}  ({setup['riesgo']} pts)
-  TP:     {setup['tp']}  ({setup['reward']} pts)
-  R:R  →  <b>1:{setup['rr']}</b>
+  Precio actual: {precio_actual}
+  {emoji_entry} Entrada ({tipo_txt}): <b>{setup['entry']}</b>
+  SL:  {setup['sl']}  ({setup['riesgo']} pts)
+  TP:  {setup['tp']}  ({setup['reward']} pts)
+  R:R → <b>1:{setup['rr']}</b>
+  ATR: {setup.get('atr', '—')} pts
 
 🕐 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━━
