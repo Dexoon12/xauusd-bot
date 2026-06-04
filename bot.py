@@ -292,22 +292,26 @@ def loop_reporte_diario():
                 stats   = resumen["stats"]
 
                 if stats and stats[0]:
-                    total    = stats[0] or 0
-                    ganadas  = stats[1] or 0
-                    perdidas = stats[2] or 0
-                    pips     = round(stats[6] or 0, 2)
-                    win_rate = round(
-                        (ganadas/(ganadas+perdidas))*100, 1
-                    ) if (ganadas+perdidas) > 0 else 0
+                    total      = stats[0] or 0
+                    ganadas    = stats[1] or 0
+                    perdidas   = stats[2] or 0
+                    expiradas  = stats[3] or 0
+                    pendientes = stats[4] or 0
+                    pips       = round(stats[6] or 0, 2)
+                    win_rate   = round(
+                        (ganadas / (ganadas + perdidas)) * 100, 1
+                    ) if (ganadas + perdidas) > 0 else 0
 
                     c_pip = "📈" if pips >= 0 else "📉"
                     msg   = (
                         f"📊 <b>Reporte diario XAUUSD</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"Señales hoy: {total}\n"
-                        f"✅ Ganadas:  {ganadas}\n"
-                        f"❌ Perdidas: {perdidas}\n"
-                        f"Win rate:   {win_rate}%\n"
+                        f"Total señales: {total}\n"
+                        f"✅ Ganadas:   {ganadas}\n"
+                        f"❌ Perdidas:  {perdidas}\n"
+                        f"➡️ Expiradas: {expiradas}\n"
+                        f"🔄 Pendientes:{pendientes}\n"
+                        f"Win rate:    {win_rate}% ({ganadas}/{ganadas+perdidas})\n"
                         f"{c_pip} Pips netos: {pips:+.2f}\n"
                         f"━━━━━━━━━━━━━━━━━━━━━━\n"
                         f"Fuente: {estado['fuente']}\n"
