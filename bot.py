@@ -53,6 +53,11 @@ cache = {
     "alertas_hoy":    0,
 }
 
+# Cola de alertas LIMIT esperando que el precio llegue al OB/FVG
+# Cada entrada: {score_final, setup, sentimiento_ia, score_ict, atr, expiry, nivel, direccion}
+alertas_pendientes = []
+_lock_pendientes   = threading.Lock()
+
 # ─── FUENTE DE DATOS ─────────────────────────────────────
 fuente_activa = "yfinance"
 
@@ -119,9 +124,70 @@ def obtener_velas_para_ict(timeframe_str="15m"):
         print(f"Error obteniendo velas: {e}")
         return None
 
+# ─── VERIFICAR ALERTAS LIMIT PENDIENTES ──────────────────
+def verificar_alertas_pendientes():
+    """
+    Revisa si el precio actual alcanzó el nivel de entrada de alguna
+    alerta LIMIT en cola. Si sí, manda la alerta Telegram ahora.
+    Expira entradas después de 4 horas sin activarse.
+    """
+    precio = estado["precio"]
+    if precio <= 0:
+        return
+
+    ahora = datetime.now(timezone.utc)
+
+    with _lock_pendientes:
+        for alerta in alertas_pendientes[:]:
+            # Expiración
+            if ahora > alerta["expiry"]:
+                alertas_pendientes.remove(alerta)
+                print(f"  [LIMIT expirado] {alerta['direccion']} "
+                      f"nivel {alerta['nivel']:.2f} sin activarse")
+                continue
+
+            direccion = alerta["direccion"]
+            nivel     = alerta["nivel"]
+            activada  = False
+
+            # LONG: esperamos que precio baje hasta el OB (nivel de compra)
+            if direccion == "LONG" and precio <= nivel:
+                activada = True
+            # SHORT: esperamos que precio suba hasta el OB (nivel de venta)
+            elif direccion == "SHORT" and precio >= nivel:
+                activada = True
+
+            if activada:
+                try:
+                    print(f"\n🎯 LIMIT ACTIVADO — precio {precio:.2f} tocó nivel {nivel:.2f}")
+                    # Actualiza el precio de entrada al precio real de activación
+                    alerta["setup"]["entry"] = round(precio, 2)
+
+                    mensaje = formatear_alerta(
+                        alerta["score_final"], alerta["setup"],
+                        alerta["sentimiento_ia"], alerta["score_ict"], precio
+                    )
+                    enviar_telegram(mensaje)
+                    cache["alertas_hoy"] += 1
+
+                    señal_id = guardar_señal(
+                        alerta["score_final"], alerta["setup"],
+                        alerta["sentimiento_ia"], alerta["score_ict"],
+                        alerta["atr"]
+                    )
+                    print(f"  Señal LIMIT guardada con ID: {señal_id}")
+
+                    ultima_alerta["tiempo"]    = ahora
+                    ultima_alerta["direccion"] = direccion
+                except Exception as e:
+                    print(f"Error enviando alerta LIMIT: {e}")
+                finally:
+                    alertas_pendientes.remove(alerta)
+
+
 # ─── LOOP PRECIO ─────────────────────────────────────────
 def loop_precio():
-    """Actualiza el precio cada 2 segundos"""
+    """Actualiza el precio cada 2 segundos y verifica alertas LIMIT"""
     print("Loop precio iniciado")
     while True:
         try:
@@ -131,9 +197,8 @@ def loop_precio():
                 estado["precio"]      = bid
                 estado["bid"]         = bid
                 estado["ask"]         = ask
-                estado["ultimo_tick"] = datetime.now().strftime(
-                    "%H:%M:%S"
-                )
+                estado["ultimo_tick"] = datetime.now().strftime("%H:%M:%S")
+                verificar_alertas_pendientes()
         except Exception as e:
             print(f"Error precio: {e}")
         time.sleep(2)
@@ -227,24 +292,55 @@ def loop_noticias_alertas():
             )
 
             if condiciones:
-                print(f"\n🚨 CONDICIONES CUMPLIDAS — enviando alerta")
-
                 atr   = score_ict.get("atr_m15", 5.0)
                 setup = calcular_setup(precio, sf["direccion"], score_ict)
-                mensaje = formatear_alerta(
-                    sf, setup, sentimiento_ia, score_ict, precio
-                )
+                tipo  = setup.get("tipo_entrada", "MARKET")
 
-                enviar_telegram(mensaje)
-                cache["alertas_hoy"] += 1
+                if tipo == "MARKET":
+                    # Entrada inmediata — precio ya es el correcto
+                    print(f"\n🚨 SEÑAL MARKET — enviando alerta inmediata")
+                    mensaje = formatear_alerta(sf, setup, sentimiento_ia, score_ict, precio)
+                    enviar_telegram(mensaje)
+                    cache["alertas_hoy"] += 1
+                    señal_id = guardar_señal(sf, setup, sentimiento_ia, score_ict, atr)
+                    print(f"  Señal guardada ID: {señal_id} | ATR: {atr:.2f}")
+                    ultima_alerta["tiempo"]    = datetime.now(timezone.utc)
+                    ultima_alerta["direccion"] = sf["direccion"]
 
-                señal_id = guardar_señal(sf, setup, sentimiento_ia, score_ict, atr)
-                print(f"  Señal guardada con ID: {señal_id}")
-                print(f"  Tipo entrada: {setup.get('tipo_entrada')} | ATR: {atr:.2f}")
-                print(f"  Total alertas hoy: {cache['alertas_hoy']}")
+                else:
+                    # Entrada LIMIT — espera que el precio llegue al OB
+                    nivel  = setup["entry"]
+                    expiry = datetime.now(timezone.utc).replace(
+                        tzinfo=timezone.utc
+                    )
+                    from datetime import timedelta
+                    expiry = datetime.now(timezone.utc) + timedelta(hours=4)
 
-                ultima_alerta["tiempo"]    = datetime.now(timezone.utc)
-                ultima_alerta["direccion"] = sf["direccion"]
+                    # Evita duplicar si ya hay una pendiente para el mismo nivel
+                    with _lock_pendientes:
+                        ya_existe = any(
+                            abs(a["nivel"] - nivel) < 0.5 and a["direccion"] == sf["direccion"]
+                            for a in alertas_pendientes
+                        )
+                        if not ya_existe:
+                            alertas_pendientes.append({
+                                "score_final":   sf,
+                                "setup":         setup,
+                                "sentimiento_ia":sentimiento_ia,
+                                "score_ict":     score_ict,
+                                "atr":           atr,
+                                "nivel":         nivel,
+                                "direccion":     sf["direccion"],
+                                "expiry":        expiry,
+                            })
+                            print(f"\n🎯 SEÑAL LIMIT en cola — "
+                                  f"{sf['direccion']} esperando precio {nivel:.2f} "
+                                  f"(actual: {precio:.2f})")
+                        else:
+                            print(f"  LIMIT {sf['direccion']} {nivel:.2f} ya está en cola")
+
+                print(f"  Total alertas hoy: {cache['alertas_hoy']} | "
+                      f"LIMIT en cola: {len(alertas_pendientes)}")
 
             else:
                 razones = []
@@ -351,11 +447,17 @@ def loop_status():
             if sf:
                 print(f"  Score:   {sf['direccion']} {sf['score']}% "
                       f"| {sf['confianza']}")
-            sesion = "✅ Londres/NY" if en_sesion_activa() else "⏸ Fuera de sesión"
+            sesion    = "✅ Londres/NY" if en_sesion_activa() else "⏸ Fuera de sesión"
             score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
             print(f"  Sesión:  {sesion}")
             print(f"  Umbral:  {score_min}% (dinámico)")
             print(f"  Alertas hoy: {cache['alertas_hoy']}")
+            with _lock_pendientes:
+                if alertas_pendientes:
+                    for ap in alertas_pendientes:
+                        mins = int((ap["expiry"] - datetime.now(timezone.utc)).total_seconds() / 60)
+                        print(f"  🎯 LIMIT {ap['direccion']} @ {ap['nivel']:.2f} "
+                              f"(expira en {mins} min)")
             print(f"{'─'*50}\n")
         except Exception:
             pass
