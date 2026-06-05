@@ -294,11 +294,27 @@ def formatear_alerta(score_final, setup, sentimiento_ia, score_ict, precio_actua
         noticia_txt = (f"\n⚠️ <b>PRECAUCIÓN:</b> "
                        f"{ev['titulo']} a las {ev['hora']}\n")
 
+    # Instrucción de orden clara según tipo de entrada
+    dir_  = score_final["direccion"]
+    if tipo_txt == "LIMIT":
+        orden_tipo = "BUY LIMIT"  if dir_ == "LONG"  else "SELL LIMIT"
+        orden_txt  = (f"🎯 <b>PON {orden_tipo} EN {setup['entry']}</b>\n"
+                      f"  (precio actual: {precio_actual})")
+    else:
+        orden_tipo = "BUY MARKET" if dir_ == "LONG"  else "SELL MARKET"
+        orden_txt  = f"⚡ <b>ENTRA {orden_tipo} AHORA @ {setup['entry']}</b>"
+
     mensaje = f"""
-{emoji_dir} <b>SEÑAL {score_final['direccion']} — XAUUSD</b>
+{emoji_dir} <b>SEÑAL {dir_} — XAUUSD</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 {emoji_conf} Score: <b>{score_final['score']}%</b> | Confianza: <b>{score_final['confianza']}</b>
 TFs en confluencia: {score_final['tfs_confluencia']}/4
+
+{orden_txt}
+  SL:  <b>{setup['sl']}</b>  ({setup['riesgo']} pts)
+  TP:  <b>{setup['tp']}</b>  ({setup['reward']} pts)
+  R:R → <b>1:{setup['rr']}</b>
+  ATR: {setup.get('atr', '—')} pts
 
 📊 <b>Análisis ICT</b>
 {tf_lineas}
@@ -306,14 +322,6 @@ TFs en confluencia: {score_final['tfs_confluencia']}/4
 {sentimiento_ia['resumen']}
   🟢 {sentimiento_ia['alcistas']} | 🔴 {sentimiento_ia['bajistas']}
 {noticia_txt}
-💰 <b>Setup sugerido</b>
-  Precio actual: {precio_actual}
-  {emoji_entry} Entrada ({tipo_txt}): <b>{setup['entry']}</b>
-  SL:  {setup['sl']}  ({setup['riesgo']} pts)
-  TP:  {setup['tp']}  ({setup['reward']} pts)
-  R:R → <b>1:{setup['rr']}</b>
-  ATR: {setup.get('atr', '—')} pts
-
 🕐 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ <i>Solo análisis. No es consejo financiero.</i>
