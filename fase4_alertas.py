@@ -238,7 +238,15 @@ def calcular_setup(precio_actual, direccion, score_ict):
             else:
                 tp = round(entry - abs(entry - sl) * 2.0, 2)
 
-    riesgo = round(abs(entry - sl), 2)
+    riesgo = abs(entry - sl)
+
+    # Fuerza mínimo 1:2 RR — si el TP natural es demasiado cercano, lo extiende
+    MIN_RR = 2.0
+    if riesgo > 0 and abs(entry - tp) < riesgo * MIN_RR:
+        tp = round(entry + riesgo * MIN_RR, 2) if direccion == "LONG" \
+             else round(entry - riesgo * MIN_RR, 2)
+
+    riesgo = round(riesgo, 2)
     reward = round(abs(entry - tp), 2)
     rr     = round(reward / riesgo, 1) if riesgo > 0 else 0
 
@@ -251,6 +259,7 @@ def calcular_setup(precio_actual, direccion, score_ict):
         "rr":           rr,
         "tipo_entrada": tipo_entrada,
         "atr":          round(atr, 2),
+        "rr_valido":    rr >= MIN_RR,
     }
 
 
