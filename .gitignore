@@ -1,6 +1,5 @@
 # Datos privados
 .env
-bot_memoria.db
 
 # Archivos temporales Python
 __pycache__/
