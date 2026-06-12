@@ -226,27 +226,21 @@ def loop_noticias_alertas():
             )
 
             if condiciones:
-                atr   = score_ict.get("atr_m15", 5.0)
-                setup = calcular_setup(precio, sf["direccion"], score_ict)
+                print(f"\n🚨 CONDICIONES CUMPLIDAS — enviando alerta")
+                atr     = score_ict.get("atr_m15", 5.0)
+                setup   = calcular_setup(precio, sf["direccion"], score_ict)
+                mensaje = formatear_alerta(sf, setup, sentimiento_ia, score_ict, precio)
 
-                if not setup.get("rr_valido", True):
-                    print(f"  ❌ Setup descartado — RR {setup['rr']}:1 < 2:1 mínimo "
-                          f"(SL {setup['riesgo']} pts, TP {setup['reward']} pts)")
-                else:
-                    print(f"\n🚨 CONDICIONES CUMPLIDAS — enviando alerta "
-                          f"(RR 1:{setup['rr']})")
-                    mensaje = formatear_alerta(sf, setup, sentimiento_ia, score_ict, precio)
+                enviar_telegram(mensaje)
+                cache["alertas_hoy"] += 1
 
-                    enviar_telegram(mensaje)
-                    cache["alertas_hoy"] += 1
+                señal_id = guardar_señal(sf, setup, sentimiento_ia, score_ict, atr)
+                print(f"  Señal guardada ID: {señal_id} | "
+                      f"{setup.get('tipo_entrada')} | RR 1:{setup['rr']} | ATR: {atr:.2f}")
+                print(f"  Total alertas hoy: {cache['alertas_hoy']}")
 
-                    señal_id = guardar_señal(sf, setup, sentimiento_ia, score_ict, atr)
-                    print(f"  Señal guardada ID: {señal_id} | "
-                          f"{setup.get('tipo_entrada')} | ATR: {atr:.2f}")
-                    print(f"  Total alertas hoy: {cache['alertas_hoy']}")
-
-                    ultima_alerta["tiempo"]    = datetime.now(timezone.utc)
-                    ultima_alerta["direccion"] = sf["direccion"]
+                ultima_alerta["tiempo"]    = datetime.now(timezone.utc)
+                ultima_alerta["direccion"] = sf["direccion"]
 
             else:
                 razones = []

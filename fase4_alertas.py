@@ -313,13 +313,17 @@ def formatear_alerta(score_final, setup, sentimiento_ia, score_ict, precio_actua
         orden_tipo = "BUY MARKET" if dir_ == "LONG"  else "SELL MARKET"
         orden_txt  = f"⚡ <b>ENTRA {orden_tipo} AHORA @ {setup['entry']}</b>"
 
+    rr_warning = ""
+    if setup.get("rr", 0) < 1.5:
+        rr_warning = f"\n⚠️ <b>RR bajo ({setup['rr']}:1) — evalúa antes de entrar</b>"
+
     mensaje = f"""
 {emoji_dir} <b>SEÑAL {dir_} — XAUUSD</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 {emoji_conf} Score: <b>{score_final['score']}%</b> | Confianza: <b>{score_final['confianza']}</b>
 TFs en confluencia: {score_final['tfs_confluencia']}/4
 
-{orden_txt}
+{orden_txt}{rr_warning}
   SL:  <b>{setup['sl']}</b>  ({setup['riesgo']} pts)
   TP:  <b>{setup['tp']}</b>  ({setup['reward']} pts)
   R:R → <b>1:{setup['rr']}</b>
