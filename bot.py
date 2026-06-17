@@ -31,7 +31,7 @@ from memoria import (
 
 # ─── CONFIG ──────────────────────────────────────────────
 SIMBOLO = "XAUUSD"
-SCORE_MINIMO_BASE = 72  # ajustado dinámicamente según win rate histórico
+SCORE_MINIMO_BASE = 62  # umbral base — dinámico según win rate histórico
 
 # ─── ESTADO GLOBAL ───────────────────────────────────────
 estado = {
@@ -218,8 +218,8 @@ def loop_noticias_alertas():
             en_sesion   = en_sesion_activa()
             condiciones = (
                 sf["score"] >= score_min and
-                sf["confianza"] in ["ALTA", "MEDIA"] and
-                sf["tfs_confluencia"] >= 2 and
+                sf["confianza"] in ["ALTA", "MEDIA", "BAJA", "EXPLORATORIA"] and
+                sf["tfs_confluencia"] >= 1 and
                 precio > 0 and
                 en_sesion and
                 puede_alertar(sf["direccion"])

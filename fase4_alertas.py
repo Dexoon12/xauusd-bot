@@ -152,8 +152,11 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
            (direccion == "SHORT" and data["tendencia"] == "bajista")
     )
 
-    confianza = "ALTA"  if score_val >= 78 and tfs_confluencia >= 3 else \
-                "MEDIA" if score_val >= 70 and tfs_confluencia >= 2 else "BAJA"
+    # 4 niveles: más señales con advertencias proporcionales al riesgo
+    confianza = "ALTA"       if score_val >= 78 and tfs_confluencia >= 3 else \
+                "MEDIA"      if score_val >= 70 and tfs_confluencia >= 2 else \
+                "BAJA"       if score_val >= 62 and tfs_confluencia >= 1 else \
+                "EXPLORATORIA"
 
     return {
         "direccion":       direccion,
@@ -282,11 +285,23 @@ def enviar_telegram(mensaje):
 
 
 def formatear_alerta(score_final, setup, sentimiento_ia, score_ict, precio_actual):
-    emoji_dir   = "🟢" if score_final["direccion"] == "LONG" else "🔴"
-    emoji_conf  = "🔥" if score_final["confianza"] == "ALTA"  else \
-                  "⚡" if score_final["confianza"] == "MEDIA" else "⚠️"
+    emoji_dir  = "🟢" if score_final["direccion"] == "LONG" else "🔴"
     emoji_entry = "🎯" if setup.get("tipo_entrada") == "LIMIT" else "⚡"
     tipo_txt    = "LIMIT" if setup.get("tipo_entrada") == "LIMIT" else "MARKET"
+
+    conf = score_final["confianza"]
+    if conf == "ALTA":
+        emoji_conf  = "🔥🔥🔥"
+        conf_warn   = ""
+    elif conf == "MEDIA":
+        emoji_conf  = "⚡⚡"
+        conf_warn   = ""
+    elif conf == "BAJA":
+        emoji_conf  = "⚠️"
+        conf_warn   = "\n🔶 <b>SEÑAL DÉBIL — reduce el tamaño de la posición</b>"
+    else:  # EXPLORATORIA
+        emoji_conf  = "🔍"
+        conf_warn   = "\n🔴 <b>EXPLORATORIA — solo observar, riesgo muy alto</b>"
 
     tf_lineas = ""
     for tf, data in score_ict["por_tf"].items():
@@ -320,8 +335,8 @@ def formatear_alerta(score_final, setup, sentimiento_ia, score_ict, precio_actua
     mensaje = f"""
 {emoji_dir} <b>SEÑAL {dir_} — XAUUSD</b>
 ━━━━━━━━━━━━━━━━━━━━━━
-{emoji_conf} Score: <b>{score_final['score']}%</b> | Confianza: <b>{score_final['confianza']}</b>
-TFs en confluencia: {score_final['tfs_confluencia']}/4
+{emoji_conf} Score: <b>{score_final['score']}%</b> | <b>{score_final['confianza']}</b>
+TFs en confluencia: {score_final['tfs_confluencia']}/4{conf_warn}
 
 {orden_txt}{rr_warning}
   SL:  <b>{setup['sl']}</b>  ({setup['riesgo']} pts)
