@@ -23,6 +23,7 @@ from fase4_alertas import (
     calcular_setup, formatear_alerta, enviar_telegram,
     puede_alertar, ultima_alerta, en_sesion_activa
 )
+from fase5_macro import calcular_factor_macro
 from memoria import (
     inicializar_db, guardar_señal,
     verificar_señales_pendientes, imprimir_reporte,
@@ -45,12 +46,14 @@ estado = {
 }
 
 cache = {
-    "score_ict":      None,
-    "score_final":    None,
-    "sentimiento_ia": None,
-    "noticias":       [],
-    "calendario":     [],
-    "alertas_hoy":    0,
+    "score_ict":        None,
+    "score_final":      None,
+    "sentimiento_ia":   None,
+    "noticias":         [],
+    "calendario":       [],
+    "alertas_hoy":      0,
+    "macro":            None,
+    "trigger_macro":    None,  # {evento, timestamp} cuando hay sorpresa grande
 }
 
 
@@ -194,9 +197,10 @@ def loop_noticias_alertas():
                 time.sleep(1800)
                 continue
 
-            # Score final combinado
+            # Score final combinado (incluye sesgo macro si está disponible)
             sf = calcular_score_final(
-                score_ict, sentimiento_ia, calendario
+                score_ict, sentimiento_ia, calendario,
+                macro=cache.get("macro")
             )
             cache["score_final"] = sf
 
@@ -261,7 +265,56 @@ def loop_noticias_alertas():
             print(f"Error noticias/alertas: {e}")
 
         print(f"  Próximo análisis en 30 minutos\n")
-        time.sleep(1800)
+
+        # Espera 30 min pero chequea cada 30s si hay trigger macro
+        for _ in range(60):
+            time.sleep(30)
+            if cache.get("trigger_macro"):
+                tr = cache["trigger_macro"]
+                seg_desde = (datetime.now(timezone.utc) - tr["timestamp"]).total_seconds()
+                if seg_desde < 1800:
+                    print(f"\n⚡ Trigger macro activo ({tr['titulo']}) — adelantando análisis")
+                    break
+
+# ─── LOOP MACRO ──────────────────────────────────────────
+def loop_macro():
+    """Actualiza sesgo macro cada 3 min. Detecta sorpresas grandes post-dato."""
+    print("Loop macro iniciado")
+    time.sleep(10)
+    while True:
+        try:
+            macro = calcular_factor_macro()
+            cache["macro"] = macro
+
+            # Si hay sorpresa grande reciente (< 20 min) → trigger inmediato
+            if macro["trigger_sorpresa"] and macro["trigger_evento"]:
+                ev      = macro["trigger_evento"]
+                trigger = cache.get("trigger_macro")
+                # Evita re-disparar el mismo evento
+                ya_procesado = (
+                    trigger and
+                    trigger.get("titulo") == ev["titulo"] and
+                    (datetime.now(timezone.utc) - trigger["timestamp"]).total_seconds() < 1800
+                )
+                if not ya_procesado:
+                    cache["trigger_macro"] = {
+                        "titulo":    ev["titulo"],
+                        "sorpresa":  ev["sorpresa_pct"],
+                        "direccion": ev["impacto_oro"]["direccion_oro"],
+                        "timestamp": datetime.now(timezone.utc),
+                    }
+                    print(f"\n🚨 TRIGGER MACRO: {ev['titulo']} "
+                          f"sorpresa {ev['sorpresa_pct']:+.0f}% "
+                          f"→ {ev['impacto_oro']['direccion_oro'].upper()} para oro")
+
+            if macro["sesgo"] != "neutral":
+                print(f"  [Macro] {macro['sesgo'].upper()} "
+                      f"(intensidad: {macro['intensidad']:.2f}) — {macro['resumen'][:60]}")
+
+        except Exception as e:
+            print(f"Error macro: {e}")
+        time.sleep(180)  # cada 3 minutos
+
 
 # ─── LOOP VERIFICACIÓN ───────────────────────────────────
 def loop_verificacion():
@@ -347,6 +400,10 @@ def loop_status():
             if sf:
                 print(f"  Score:   {sf['direccion']} {sf['score']}% "
                       f"| {sf['confianza']}")
+            macro = cache.get("macro")
+            if macro and macro["sesgo"] != "neutral":
+                print(f"  Macro:   {macro['sesgo'].upper()} "
+                      f"(intensidad {macro['intensidad']:.2f})")
             sesion    = "✅ Londres/NY" if en_sesion_activa() else "⏸ Fuera de sesión"
             score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
             print(f"  Sesión:  {sesion}")
@@ -386,6 +443,7 @@ if __name__ == "__main__":
     hilos = [
         threading.Thread(target=loop_precio,          daemon=True),
         threading.Thread(target=loop_ict,             daemon=True),
+        threading.Thread(target=loop_macro,           daemon=True),
         threading.Thread(target=loop_noticias_alertas,daemon=True),
         threading.Thread(target=loop_verificacion,    daemon=True),
         threading.Thread(target=loop_reporte_diario,  daemon=True),

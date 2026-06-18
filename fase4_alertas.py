@@ -110,11 +110,9 @@ El score va de 0 a 100 donde:
 
 
 # ─── 2. SCORE FINAL ──────────────────────────────────────
-# Cambios vs versión anterior:
-# - Eliminada constante artificial 50*0.15 que inflaba scores débiles
-# - Pesos limpios: ICT 70% + sentimiento IA 30%
-# - Umbrales de confianza ligeramente subidos para más calidad
-def calcular_score_final(score_ict, sentimiento_ia, calendario):
+# Pesos: ICT 60% + noticias IA 25% + macro 15%
+# Sin macro disponible: ICT 70% + noticias IA 30% (igual que antes)
+def calcular_score_final(score_ict, sentimiento_ia, calendario, macro=None):
     ict_dir   = score_ict["direccion"]
     ict_score = score_ict["score"]
     not_score = sentimiento_ia["score"]
@@ -131,9 +129,18 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
     else:
         cal_factor = 1.0
 
-    # Pesos limpios: ICT 70%, noticias IA 30%
-    final_long  = (ict_long  * 0.70 + not_long  * 0.30) * cal_factor
-    final_short = (ict_short * 0.70 + not_short * 0.30) * cal_factor
+    # Extra caución si hay evento macro de alto impacto en < 2h
+    if macro and macro.get("hay_riesgo_inmediato"):
+        cal_factor = min(cal_factor, 0.75)
+
+    if macro:
+        ml = macro["factor_long"]   # 30-70
+        ms = macro["factor_short"]  # 30-70
+        final_long  = (ict_long  * 0.60 + not_long  * 0.25 + ml * 0.15) * cal_factor
+        final_short = (ict_short * 0.60 + not_short * 0.25 + ms * 0.15) * cal_factor
+    else:
+        final_long  = (ict_long  * 0.70 + not_long  * 0.30) * cal_factor
+        final_short = (ict_short * 0.70 + not_short * 0.30) * cal_factor
 
     total     = final_long + final_short
     pct_long  = round((final_long  / total) * 100)
@@ -152,21 +159,26 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario):
            (direccion == "SHORT" and data["tendencia"] == "bajista")
     )
 
-    # 4 niveles: más señales con advertencias proporcionales al riesgo
-    confianza = "ALTA"       if score_val >= 78 and tfs_confluencia >= 3 else \
-                "MEDIA"      if score_val >= 70 and tfs_confluencia >= 2 else \
-                "BAJA"       if score_val >= 62 and tfs_confluencia >= 1 else \
+    confianza = "ALTA"        if score_val >= 78 and tfs_confluencia >= 3 else \
+                "MEDIA"       if score_val >= 70 and tfs_confluencia >= 2 else \
+                "BAJA"        if score_val >= 62 and tfs_confluencia >= 1 else \
                 "EXPLORATORIA"
 
     return {
-        "direccion":       direccion,
-        "score":           score_val,
-        "confianza":       confianza,
-        "pct_long":        pct_long,
-        "pct_short":       pct_short,
-        "tfs_confluencia": tfs_confluencia,
-        "hay_noticia":     hay_noticia,
-        "evento_proximo":  evento_proximo,
+        "direccion":              direccion,
+        "score":                  score_val,
+        "confianza":              confianza,
+        "pct_long":               pct_long,
+        "pct_short":              pct_short,
+        "tfs_confluencia":        tfs_confluencia,
+        "hay_noticia":            hay_noticia,
+        "evento_proximo":         evento_proximo,
+        "macro_sesgo":            macro["sesgo"]               if macro else "neutral",
+        "macro_resumen":          macro["resumen"]             if macro else "",
+        "macro_intensidad":       macro["intensidad"]          if macro else 0.0,
+        "hay_riesgo_macro":       macro["hay_riesgo_inmediato"] if macro else False,
+        "evento_macro_inminente": macro["evento_inminente"]    if macro else None,
+        "proximos_macro":         macro["proximos_riesgo"][:4] if macro else [],
     }
 
 
@@ -318,6 +330,29 @@ def formatear_alerta(score_final, setup, sentimiento_ia, score_ict, precio_actua
         noticia_txt = (f"\n⚠️ <b>PRECAUCIÓN:</b> "
                        f"{ev['titulo']} a las {ev['hora']}\n")
 
+    # Sección macro
+    macro_txt = ""
+    sesgo_macro = score_final.get("macro_sesgo", "neutral")
+    if sesgo_macro != "neutral":
+        emoji_m  = "📈" if sesgo_macro == "alcista" else "📉"
+        intens   = score_final.get("macro_intensidad", 0)
+        intens_s = "fuerte" if intens > 0.6 else "moderado" if intens > 0.3 else "leve"
+        macro_txt += (f"\n{emoji_m} <b>Macro:</b> {sesgo_macro.upper()} {intens_s}\n"
+                      f"  {score_final.get('macro_resumen', '')}\n")
+
+    if score_final.get("hay_riesgo_macro") and score_final.get("evento_macro_inminente"):
+        ev_m = score_final["evento_macro_inminente"]
+        macro_txt += (f"⚠️ <b>{ev_m['titulo']}</b> en {ev_m['horas_hasta']:.1f}h"
+                      f"  (consenso: {ev_m['previsto'] or '—'})\n")
+
+    proximos = score_final.get("proximos_macro", [])
+    if proximos:
+        macro_txt += "\n📅 <b>Próximos datos:</b>\n"
+        for ev_p in proximos[:4]:
+            stars = "⭐" * min(ev_p.get("peso", 1), 5)
+            macro_txt += (f"  {ev_p['horas_hasta']:.0f}h → {ev_p['titulo']}"
+                          f"  {stars}  consenso: {ev_p['previsto'] or '—'}\n")
+
     # Instrucción de orden clara según tipo de entrada
     dir_  = score_final["direccion"]
     if tipo_txt == "LIMIT":
@@ -349,7 +384,7 @@ TFs en confluencia: {score_final['tfs_confluencia']}/4{conf_warn}
 📰 <b>Noticias IA ({sentimiento_ia['score']}%)</b>
 {sentimiento_ia['resumen']}
   🟢 {sentimiento_ia['alcistas']} | 🔴 {sentimiento_ia['bajistas']}
-{noticia_txt}
+{macro_txt}{noticia_txt}
 🕐 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ <i>Solo análisis. No es consejo financiero.</i>
