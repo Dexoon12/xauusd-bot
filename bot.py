@@ -32,7 +32,7 @@ from memoria import (
 
 # ─── CONFIG ──────────────────────────────────────────────
 SIMBOLO = "XAUUSD"
-SCORE_MINIMO_BASE = 62  # umbral base — dinámico según win rate histórico
+SCORE_MINIMO_BASE = 68  # umbral base — dinámico según win rate histórico
 
 # ─── ESTADO GLOBAL ───────────────────────────────────────
 estado = {
@@ -222,7 +222,7 @@ def loop_noticias_alertas():
             en_sesion   = en_sesion_activa()
             condiciones = (
                 sf["score"] >= score_min and
-                sf["confianza"] in ["ALTA", "MEDIA", "BAJA", "EXPLORATORIA"] and
+                sf["confianza"] in ["ALTA", "MEDIA", "BAJA"] and
                 sf["tfs_confluencia"] >= 1 and
                 precio > 0 and
                 en_sesion and
@@ -251,8 +251,8 @@ def loop_noticias_alertas():
                 score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
                 if sf["score"] < score_min:
                     razones.append(f"score {sf['score']}% < {score_min}%")
-                if sf["confianza"] not in ["ALTA", "MEDIA"]:
-                    razones.append(f"confianza {sf['confianza']}")
+                if sf["confianza"] not in ["ALTA", "MEDIA", "BAJA"]:
+                    razones.append(f"confianza {sf['confianza']} (EXPLORATORIA bloqueada)")
                 if sf["tfs_confluencia"] < 2:
                     razones.append(f"solo {sf['tfs_confluencia']}/4 TFs")
                 if not en_sesion_activa():
