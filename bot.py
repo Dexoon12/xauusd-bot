@@ -24,6 +24,11 @@ from fase4_alertas import (
     puede_alertar, ultima_alerta, en_sesion_activa
 )
 from fase5_macro import calcular_factor_macro
+from fase6_ejecutor import (
+    puede_ejecutar, ejecutar_orden,
+    formatear_ejecucion, resumen_estado,
+    cancelar_ordenes_pendientes,
+)
 from memoria import (
     inicializar_db, guardar_señal,
     verificar_señales_pendientes, imprimir_reporte,
@@ -33,6 +38,7 @@ from memoria import (
 # ─── CONFIG ──────────────────────────────────────────────
 SIMBOLO = "XAUUSD"
 SCORE_MINIMO_BASE = 68  # umbral base — dinámico según win rate histórico
+AUTO_EJECUTAR     = False  # True = ejecuta en MT5 automáticamente (MEDIA y ALTA)
 
 # ─── ESTADO GLOBAL ───────────────────────────────────────
 estado = {
@@ -243,6 +249,21 @@ def loop_noticias_alertas():
                       f"{setup.get('tipo_entrada')} | RR 1:{setup['rr']} | ATR: {atr:.2f}")
                 print(f"  Total alertas hoy: {cache['alertas_hoy']}")
 
+                # Auto-ejecución en MT5 (solo si está activado)
+                if AUTO_EJECUTAR and fuente_activa == "mt5":
+                    ok, razon = puede_ejecutar(sf, setup)
+                    if ok:
+                        print(f"  Ejecutando orden en MT5...")
+                        resultado_orden = ejecutar_orden(sf, setup, precio)
+                        msg_ejecucion = formatear_ejecucion(resultado_orden, sf, setup)
+                        enviar_telegram(msg_ejecucion)
+                        if resultado_orden["exito"]:
+                            cache["trigger_macro"] = None  # limpia trigger tras ejecutar
+                    else:
+                        print(f"  No ejecuta: {razon}")
+                elif AUTO_EJECUTAR and fuente_activa != "mt5":
+                    print("  AUTO_EJECUTAR activo pero sin MT5 — se omite ejecución")
+
                 ultima_alerta["tiempo"]    = datetime.now(timezone.utc)
                 ultima_alerta["direccion"] = sf["direccion"]
 
@@ -404,6 +425,8 @@ def loop_status():
             if macro and macro["sesgo"] != "neutral":
                 print(f"  Macro:   {macro['sesgo'].upper()} "
                       f"(intensidad {macro['intensidad']:.2f})")
+            if AUTO_EJECUTAR:
+                print(f"  MT5 bot: {resumen_estado()}")
             sesion    = "✅ Londres/NY" if en_sesion_activa() else "⏸ Fuera de sesión"
             score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
             print(f"  Sesión:  {sesion}")
@@ -461,5 +484,9 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nBot detenido.")
+        if AUTO_EJECUTAR and fuente_activa == "mt5":
+            cancelados = cancelar_ordenes_pendientes()
+            if cancelados:
+                print(f"  {cancelados} órdenes pendientes canceladas")
         if fuente_activa == "mt5" and MT5_DISPONIBLE:
             mt5.shutdown()

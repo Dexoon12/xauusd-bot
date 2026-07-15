@@ -109,6 +109,24 @@ El score va de 0 a 100 donde:
         return calcular_sentimiento_global(noticias)
 
 
+# ─── DETECTOR DE RESISTENCIA ACTIVA ─────────────────────
+def _precio_en_resistencia(score_ict):
+    """
+    True si el precio está dentro o muy cerca (proximidad > 0.6)
+    de un OB bajista no mitigado en H1 o M15.
+    Indica que el precio llegó a una zona de resistencia técnica clave.
+    """
+    for tf in ["H1", "M15", "H4"]:
+        tf_data = score_ict.get("por_tf", {}).get(tf, {})
+        obs_baj = [o for o in tf_data.get("obs", [])
+                   if o["tipo"] == "bajista"
+                   and not o["mitigado"]
+                   and o.get("proximidad", 0) > 0.6]
+        if obs_baj:
+            return True
+    return False
+
+
 # ─── 2. SCORE FINAL ──────────────────────────────────────
 # Pesos: ICT 60% + noticias IA 25% + macro 15%
 # Sin macro disponible: ICT 70% + noticias IA 30% (igual que antes)
@@ -141,6 +159,15 @@ def calcular_score_final(score_ict, sentimiento_ia, calendario, macro=None):
     else:
         final_long  = (ict_long  * 0.70 + not_long  * 0.30) * cal_factor
         final_short = (ict_short * 0.70 + not_short * 0.30) * cal_factor
+
+    # Premium de resistencia: precio en OB bajista + evento macro en < 24h
+    # → profit-taking muy probable → boost SHORT aunque macro sea neutral/alcista
+    resistencia_activa = _precio_en_resistencia(score_ict)
+    proximos_24h = [ev for ev in (macro or {}).get("proximos_riesgo", [])
+                    if ev.get("horas_hasta", 99) <= 24 and ev.get("peso", 0) >= 4]
+    if resistencia_activa and proximos_24h:
+        final_short *= 1.12
+        final_long  *= 0.90
 
     total     = final_long + final_short
     pct_long  = round((final_long  / total) * 100)
