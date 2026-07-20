@@ -1,0 +1,12 @@
+# Dependencias del bot XAUUSD — instalar en VPS con:
+# pip install -r requirements_vps.txt
+# MetaTrader5 se instala aparte (ver instrucciones)
+
+anthropic==0.100.0
+yfinance==1.3.0
+requests==2.33.1
+python-dotenv==1.2.2
+gnews==0.4.3
+pandas==3.0.2
+numpy==2.4.4
+MetaTrader5
