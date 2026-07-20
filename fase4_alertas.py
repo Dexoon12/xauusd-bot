@@ -22,12 +22,20 @@ ultima_alerta = {"tiempo": None, "direccion": None}
 
 
 # ─── SESIÓN ACTIVA ────────────────────────────────────────
-# Solo alertamos en sesión Londres (07-11 UTC) y Nueva York (13-17 UTC).
-# Operar fuera de estas ventanas aumenta falsas señales por baja liquidez.
 def en_sesion_activa():
-    ahora = datetime.now(timezone.utc)
-    h = ahora.hour + ahora.minute / 60.0
-    return (7.0 <= h < 11.0) or (13.0 <= h < 17.0)
+    return True  # 24h — sin filtro de sesión
+
+
+def nombre_sesion_actual():
+    """Nombre informativo de la sesión actual (solo para logs)."""
+    h = datetime.now(timezone.utc).hour + datetime.now(timezone.utc).minute / 60.0
+    if   0.0 <= h <  6.0: return "Asia/Tokyo"
+    elif 6.0 <= h <  7.0: return "Pre-Londres"
+    elif 7.0 <= h < 11.0: return "Londres"
+    elif 11.0 <= h < 13.0: return "Pausa mediodía"
+    elif 13.0 <= h < 17.0: return "Nueva York"
+    elif 17.0 <= h < 21.0: return "NY tarde"
+    else:                   return "Madrugada"
 
 
 # ─── 1. SENTIMIENTO CON CLAUDE ───────────────────────────

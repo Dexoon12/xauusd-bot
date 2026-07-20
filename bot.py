@@ -21,7 +21,8 @@ from fase3_noticias import (
 from fase4_alertas import (
     analizar_sentimiento_ia, calcular_score_final,
     calcular_setup, formatear_alerta, enviar_telegram,
-    puede_alertar, ultima_alerta, en_sesion_activa
+    puede_alertar, ultima_alerta, en_sesion_activa,
+    nombre_sesion_actual,
 )
 from fase5_macro import calcular_factor_macro
 from fase6_ejecutor import (
@@ -276,8 +277,6 @@ def loop_noticias_alertas():
                     razones.append(f"confianza {sf['confianza']} (EXPLORATORIA bloqueada)")
                 if sf["tfs_confluencia"] < 2:
                     razones.append(f"solo {sf['tfs_confluencia']}/4 TFs")
-                if not en_sesion_activa():
-                    razones.append("fuera de sesión Londres/NY")
                 if not puede_alertar(sf["direccion"]):
                     razones.append("en cooldown")
                 print(f"  Sin señal: {' | '.join(razones)}")
@@ -427,9 +426,8 @@ def loop_status():
                       f"(intensidad {macro['intensidad']:.2f})")
             if AUTO_EJECUTAR:
                 print(f"  MT5 bot: {resumen_estado()}")
-            sesion    = "✅ Londres/NY" if en_sesion_activa() else "⏸ Fuera de sesión"
             score_min = obtener_score_minimo_dinamico(base=SCORE_MINIMO_BASE)
-            print(f"  Sesión:  {sesion}")
+            print(f"  Sesión:  {nombre_sesion_actual()}")
             print(f"  Umbral:  {score_min}% (dinámico)")
             print(f"  Alertas hoy: {cache['alertas_hoy']}")
             print(f"{'─'*50}\n")
