@@ -1,4 +1,5 @@
 import os
+import time
 import pandas as pd
 import numpy as np
 import requests
@@ -9,8 +10,6 @@ try:
 except ImportError:
     MT5_DISPONIBLE = False
     mt5 = None
-
-TWELVE_DATA_KEY = os.getenv("TWELVE_DATA_KEY", "")
 
 
 # ─── OBTENER VELAS POR TIMEFRAME ─────────────────────────
@@ -28,25 +27,31 @@ def get_velas(simbolo="XAUUSD", timeframe=None, cantidad=200):
             df = df[["open", "high", "low", "close", "tick_volume"]].copy()
             df.rename(columns={"tick_volume": "volume"}, inplace=True)
             return df
-        elif TWELVE_DATA_KEY:
+
+        key = os.getenv("TWELVE_DATA_KEY", "")
+        if key:
             mapa = {1440: "1day", 240: "4h", 60: "1h", 15: "15min", 5: "5min", 1: "1min"}
             if timeframe is None:
                 timeframe = 15
             interval = mapa.get(timeframe, "15min")
             url = (f"https://api.twelvedata.com/time_series"
                    f"?symbol=XAU/USD&interval={interval}"
-                   f"&outputsize={cantidad}&apikey={TWELVE_DATA_KEY}")
-            data = requests.get(url, timeout=15).json()
-            df = pd.DataFrame(data["values"])
+                   f"&outputsize={cantidad}&apikey={key}")
+            resp = requests.get(url, timeout=15).json()
+            if "values" not in resp:
+                print(f"Twelve Data error [{interval}]: {resp.get('message', resp)}")
+                return None
+            df = pd.DataFrame(resp["values"])
             df["datetime"] = pd.to_datetime(df["datetime"])
             df = df.set_index("datetime").sort_index()
             for col in ["open", "high", "low", "close"]:
                 df[col] = df[col].astype(float)
             df["volume"] = df["volume"].astype(float) if "volume" in df.columns else 0.0
+            time.sleep(8)  # respetar límite de 8 llamadas/min del plan gratuito
             return df
-        else:
-            print("Error get_velas: sin fuente de datos (MT5 ni TWELVE_DATA_KEY)")
-            return None
+
+        print("Error get_velas: sin fuente de datos (MT5 ni TWELVE_DATA_KEY)")
+        return None
     except Exception as e:
         print(f"Error get_velas: {e}")
         return None
