@@ -232,14 +232,17 @@ def loop_noticias_alertas():
                 time.sleep(1800)
                 continue
 
+            for i, n in enumerate(noticias[:5], 1):
+                sent = {"alcista": "▲", "bajista": "▼", "neutral": "─"}.get(n["sentimiento"], "?")
+                print(f"  {i}. {sent} {n['titulo'][:80]}")
+
             # Analizar con Claude IA
             print("  Analizando con Claude IA...")
             sentimiento_ia = analizar_sentimiento_ia(noticias)
             cache["sentimiento_ia"] = sentimiento_ia
 
             print(f"  IA: {sentimiento_ia['direccion'].upper()} "
-                  f"{sentimiento_ia['score']}%")
-            print(f"  {sentimiento_ia['resumen'][:80]}...")
+                  f"{sentimiento_ia['score']}% — {sentimiento_ia['resumen'][:100]}")
 
             # Necesitamos ICT para el score final
             score_ict = cache.get("score_ict")
