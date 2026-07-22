@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 import requests
@@ -6,12 +7,14 @@ from collections import deque
 
 import yfinance as yf
 
-# Intenta importar MT5 — si no está disponible usa yFinance
+# Intenta importar MT5 — si no está disponible usa Twelve Data o yFinance
 try:
     import MetaTrader5 as mt5
     MT5_DISPONIBLE = True
 except ImportError:
     MT5_DISPONIBLE = False
+
+TWELVE_DATA_KEY = os.getenv("TWELVE_DATA_KEY", "")
 
 from fase2_ict import calcular_score
 from fase3_noticias import (
@@ -67,6 +70,33 @@ cache = {
 # ─── FUENTE DE DATOS ─────────────────────────────────────
 fuente_activa = "yfinance"
 
+def _precio_twelvedata():
+    url = (f"https://api.twelvedata.com/price"
+           f"?symbol=XAU/USD&apikey={TWELVE_DATA_KEY}")
+    data = requests.get(url, timeout=10).json()
+    precio = float(data["price"])
+    return precio, precio + 0.20
+
+def _velas_twelvedata(timeframe_str):
+    import pandas as pd
+    mapa = {
+        "1m": "1min", "5m": "5min", "15m": "15min",
+        "1h": "1h",   "4h": "4h",   "1d":  "1day",
+    }
+    interval = mapa.get(timeframe_str, "15min")
+    url = (f"https://api.twelvedata.com/time_series"
+           f"?symbol=XAU/USD&interval={interval}"
+           f"&outputsize=300&apikey={TWELVE_DATA_KEY}")
+    data = requests.get(url, timeout=15).json()
+    df = pd.DataFrame(data["values"])
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    df = df.set_index("datetime").sort_index()
+    for col in ["open", "high", "low", "close"]:
+        df[col] = df[col].astype(float)
+    if "volume" in df.columns:
+        df["volume"] = df["volume"].astype(float)
+    return df
+
 def iniciar_fuente():
     global fuente_activa
     if MT5_DISPONIBLE:
@@ -79,8 +109,19 @@ def iniciar_fuente():
                 fuente_activa       = "mt5"
                 print(f"✅ MT5 conectado: {info.name} | {info.company}")
                 return "mt5"
-    print("⚠️  MT5 no disponible — usando yFinance")
-    estado["fuente"]    = "yFinance"
+    if TWELVE_DATA_KEY:
+        try:
+            precio, _ = _precio_twelvedata()
+            if precio > 0:
+                estado["fuente"]    = "Twelve Data (real-time)"
+                estado["conectado"] = True
+                fuente_activa       = "twelvedata"
+                print(f"✅ Twelve Data conectado — XAU/USD: ${precio:.2f}")
+                return "twelvedata"
+        except Exception as e:
+            print(f"⚠️  Twelve Data error: {e} — cayendo a yFinance")
+    print("⚠️  Usando yFinance (15 min delay)")
+    estado["fuente"]    = "yFinance (15min delay)"
     estado["conectado"] = True
     fuente_activa       = "yfinance"
     return "yfinance"
@@ -91,6 +132,8 @@ def obtener_precio_actual():
             tick = mt5.symbol_info_tick(SIMBOLO)
             if tick and tick.bid > 0:
                 return tick.bid, tick.ask
+        if fuente_activa == "twelvedata":
+            return _precio_twelvedata()
         # yFinance fallback
         precio = yf.Ticker("GC=F").fast_info["last_price"]
         return precio, precio + 0.20
@@ -99,7 +142,6 @@ def obtener_precio_actual():
         return None, None
 
 def obtener_velas_para_ict(timeframe_str="15m"):
-    """Obtiene velas para el análisis ICT"""
     try:
         if fuente_activa == "mt5":
             import pandas as pd
@@ -116,23 +158,23 @@ def obtener_velas_para_ict(timeframe_str="15m"):
             df    = pd.DataFrame(velas)
             df["time"] = pd.to_datetime(df["time"], unit="s")
             return df.set_index("time")
-        else:
-            import pandas as pd
-            periodo = "1d" if timeframe_str in ["1m","5m"] else "5d"
-            df = yf.Ticker("GC=F").history(
-                interval=timeframe_str, period=periodo
-            )
-            df.columns = [c.lower() for c in df.columns]
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
-            return df
+        if fuente_activa == "twelvedata":
+            return _velas_twelvedata(timeframe_str)
+        # yFinance fallback
+        import pandas as pd
+        periodo = "1d" if timeframe_str in ["1m","5m"] else "5d"
+        df = yf.Ticker("GC=F").history(interval=timeframe_str, period=periodo)
+        df.columns = [c.lower() for c in df.columns]
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        return df
     except Exception as e:
         print(f"Error obteniendo velas: {e}")
         return None
 
 # ─── LOOP PRECIO ─────────────────────────────────────────
 def loop_precio():
-    """Actualiza el precio cada 2 segundos"""
+    """Actualiza el precio — intervalo depende de la fuente"""
     print("Loop precio iniciado")
     while True:
         try:
@@ -145,11 +187,17 @@ def loop_precio():
                 estado["ultimo_tick"] = datetime.now().strftime("%H:%M:%S")
         except Exception as e:
             print(f"Error precio: {e}")
-        time.sleep(2)
+        # MT5: cada 2s (real-time) | Twelve Data: cada 5min (800 créditos/día) | yFinance: cada 60s
+        if fuente_activa == "mt5":
+            time.sleep(2)
+        elif fuente_activa == "twelvedata":
+            time.sleep(300)
+        else:
+            time.sleep(60)
 
 # ─── LOOP ICT ────────────────────────────────────────────
 def loop_ict():
-    """Calcula análisis ICT cada 5 minutos"""
+    """Calcula análisis ICT — 5 min con MT5, 20 min con Twelve Data"""
     print("Loop ICT iniciado")
     while True:
         try:
@@ -162,7 +210,11 @@ def loop_ict():
                   f"TFs: {sum(1 for d in resultado['por_tf'].values() if d['tendencia'] == ('alcista' if resultado['direccion']=='LONG' else 'bajista'))}/4")
         except Exception as e:
             print(f"Error ICT: {e}")
-        time.sleep(300)  # cada 5 minutos
+        # MT5/yFinance: cada 5min | Twelve Data: cada 20min (4 TF × 72 = 288 créditos/día)
+        if fuente_activa == "twelvedata":
+            time.sleep(1200)
+        else:
+            time.sleep(300)
 
 # ─── LOOP NOTICIAS Y ALERTAS ─────────────────────────────
 def loop_noticias_alertas():
