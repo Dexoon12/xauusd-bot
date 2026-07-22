@@ -1,6 +1,10 @@
 # Datos privados
 .env
 
+# Base de datos de runtime
+bot_memoria.db
+*.db
+
 # Archivos temporales Python
 __pycache__/
 *.pyc
