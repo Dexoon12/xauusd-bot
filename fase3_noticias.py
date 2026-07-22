@@ -9,8 +9,16 @@ load_dotenv()
 # ─── CONFIG ──────────────────────────────────────────────
 NEWSAPI_KEY = "TU_NEWSAPI_KEY"  # lo dejamos por si sirve después
 
+_cache_calendario = {"datos": [], "ts": None}
+
 # ─── 1. CALENDARIO ECONÓMICO ─────────────────────────────
 def obtener_calendario():
+    # Reusar cache si tiene menos de 2 horas (evita 429 de ForexFactory)
+    if _cache_calendario["ts"]:
+        edad = (datetime.now(timezone.utc) - _cache_calendario["ts"]).total_seconds()
+        if edad < 7200:
+            return _cache_calendario["datos"]
+
     eventos = []
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -52,10 +60,14 @@ def obtener_calendario():
                     continue
         else:
             print(f"Forex Factory HTTP {resp.status_code}")
+            return _cache_calendario["datos"]  # devuelve cache anterior si hay 429
 
     except Exception as e:
         print(f"Error calendario: {e}")
+        return _cache_calendario["datos"]
 
+    _cache_calendario["datos"] = eventos
+    _cache_calendario["ts"]    = datetime.now(timezone.utc)
     return eventos
 
 
