@@ -119,12 +119,14 @@ def iniciar_fuente():
                 print(f"✅ Twelve Data conectado — XAU/USD: ${precio:.2f}")
                 return "twelvedata"
         except Exception as e:
-            print(f"⚠️  Twelve Data error: {e} — cayendo a yFinance")
-    print("⚠️  Usando yFinance (15 min delay)")
-    estado["fuente"]    = "yFinance (15min delay)"
-    estado["conectado"] = True
-    fuente_activa       = "yfinance"
-    return "yfinance"
+            print(f"❌ Twelve Data error: {e}")
+    # Sin MT5 ni Twelve Data — espera y reintenta en vez de usar datos retrasados
+    print("❌ Sin fuente de datos válida (MT5 ni TWELVE_DATA_KEY configurado)")
+    print("   Configura TWELVE_DATA_KEY en .env o en Railway → Variables")
+    estado["fuente"]    = "sin datos"
+    estado["conectado"] = False
+    fuente_activa       = "ninguna"
+    return "ninguna"
 
 def obtener_precio_actual():
     try:
@@ -177,6 +179,11 @@ def loop_precio():
     """Actualiza el precio — intervalo depende de la fuente"""
     print("Loop precio iniciado")
     while True:
+        if fuente_activa == "ninguna":
+            print("⏳ Sin fuente de datos — reintentando conexión en 2 min...")
+            iniciar_fuente()
+            time.sleep(120)
+            continue
         try:
             bid, ask = obtener_precio_actual()
             if bid and bid > 0:
@@ -187,13 +194,11 @@ def loop_precio():
                 estado["ultimo_tick"] = datetime.now().strftime("%H:%M:%S")
         except Exception as e:
             print(f"Error precio: {e}")
-        # MT5: cada 2s (real-time) | Twelve Data: cada 5min (800 créditos/día) | yFinance: cada 60s
+        # MT5: cada 2s (real-time) | Twelve Data: cada 5min (800 créditos/día)
         if fuente_activa == "mt5":
             time.sleep(2)
-        elif fuente_activa == "twelvedata":
-            time.sleep(300)
         else:
-            time.sleep(60)
+            time.sleep(300)
 
 # ─── LOOP ICT ────────────────────────────────────────────
 def loop_ict():

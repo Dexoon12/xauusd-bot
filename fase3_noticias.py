@@ -179,7 +179,8 @@ def calcular_sentimiento_global(noticias):
     if not noticias:
         return {
             "score": 50, "direccion": "neutral",
-            "alcistas": 0, "bajistas": 0, "neutrales": 0
+            "resumen": "Sin noticias disponibles",
+            "alcistas": 0, "bajistas": 0, "neutrales": 0,
         }
 
     alcistas  = [n for n in noticias if n["sentimiento"] == "alcista"]
@@ -190,20 +191,25 @@ def calcular_sentimiento_global(noticias):
     if total == 0:
         return {
             "score": 50, "direccion": "neutral",
-            "alcistas": 0, "bajistas": 0, "neutrales": len(neutrales)
+            "resumen": "Noticias sin sesgo claro",
+            "alcistas": 0, "bajistas": 0, "neutrales": len(neutrales),
         }
 
     pct_alc = round((len(alcistas) / total) * 100)
     pct_baj = round((len(bajistas) / total) * 100)
 
     if pct_alc >= pct_baj:
-        return {"score": pct_alc, "direccion": "alcista",
-                "alcistas": len(alcistas), "bajistas": len(bajistas),
-                "neutrales": len(neutrales)}
+        return {
+            "score": pct_alc, "direccion": "alcista",
+            "resumen": f"Sentimiento alcista ({pct_alc}%) — análisis básico sin IA",
+            "alcistas": len(alcistas), "bajistas": len(bajistas), "neutrales": len(neutrales),
+        }
     else:
-        return {"score": pct_baj, "direccion": "bajista",
-                "alcistas": len(alcistas), "bajistas": len(bajistas),
-                "neutrales": len(neutrales)}
+        return {
+            "score": pct_baj, "direccion": "bajista",
+            "resumen": f"Sentimiento bajista ({pct_baj}%) — análisis básico sin IA",
+            "alcistas": len(alcistas), "bajistas": len(bajistas), "neutrales": len(neutrales),
+        }
 
 
 # ─── 3. SCORE FINAL ──────────────────────────────────────
