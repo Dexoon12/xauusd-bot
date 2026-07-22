@@ -5,9 +5,7 @@ import requests
 from datetime import datetime, timezone
 from collections import deque
 
-import yfinance as yf
-
-# Intenta importar MT5 — si no está disponible usa Twelve Data o yFinance
+# Intenta importar MT5 — si no está disponible usa Twelve Data
 try:
     import MetaTrader5 as mt5
     MT5_DISPONIBLE = True
@@ -68,7 +66,7 @@ cache = {
 
 
 # ─── FUENTE DE DATOS ─────────────────────────────────────
-fuente_activa = "yfinance"
+fuente_activa = "ninguna"
 
 def _precio_twelvedata():
     url = (f"https://api.twelvedata.com/price"
@@ -136,12 +134,9 @@ def obtener_precio_actual():
                 return tick.bid, tick.ask
         if fuente_activa == "twelvedata":
             return _precio_twelvedata()
-        # yFinance fallback
-        precio = yf.Ticker("GC=F").fast_info["last_price"]
-        return precio, precio + 0.20
     except Exception as e:
         print(f"Error obteniendo precio: {e}")
-        return None, None
+    return None, None
 
 def obtener_velas_para_ict(timeframe_str="15m"):
     try:
@@ -162,17 +157,9 @@ def obtener_velas_para_ict(timeframe_str="15m"):
             return df.set_index("time")
         if fuente_activa == "twelvedata":
             return _velas_twelvedata(timeframe_str)
-        # yFinance fallback
-        import pandas as pd
-        periodo = "1d" if timeframe_str in ["1m","5m"] else "5d"
-        df = yf.Ticker("GC=F").history(interval=timeframe_str, period=periodo)
-        df.columns = [c.lower() for c in df.columns]
-        if df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
-        return df
     except Exception as e:
         print(f"Error obteniendo velas: {e}")
-        return None
+    return None
 
 # ─── LOOP PRECIO ─────────────────────────────────────────
 def loop_precio():
