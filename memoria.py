@@ -147,11 +147,19 @@ def verificar_señales_pendientes():
 
     if not precio_actual:
         try:
-            import yfinance as yf
-            precio_actual = yf.Ticker("GC=F").fast_info["last_price"]
+            import os, requests
+            key = os.getenv("TWELVE_DATA_KEY", "")
+            if key:
+                data = requests.get(
+                    f"https://api.twelvedata.com/price?symbol=XAU/USD&apikey={key}",
+                    timeout=10
+                ).json()
+                precio_actual = float(data["price"])
         except Exception:
-            conn.close()
-            return
+            pass
+    if not precio_actual:
+        conn.close()
+        return
 
     ahora = datetime.now(timezone.utc)
 
