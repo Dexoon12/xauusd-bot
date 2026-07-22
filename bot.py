@@ -200,8 +200,8 @@ def loop_noticias_alertas():
             # Necesitamos ICT para el score final
             score_ict = cache.get("score_ict")
             if not score_ict:
-                print("  ICT no listo aún — esperando...")
-                time.sleep(1800)
+                print("  ICT no listo aún — reintentando en 60s...")
+                time.sleep(60)
                 continue
 
             # Score final combinado (incluye sesgo macro si está disponible)
