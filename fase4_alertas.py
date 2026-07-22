@@ -23,19 +23,42 @@ ultima_alerta = {"tiempo": None, "direccion": None}
 
 # ─── SESIÓN ACTIVA ────────────────────────────────────────
 def en_sesion_activa():
-    return True  # 24h — sin filtro de sesión
+    """
+    XAU/USD opera Domingo 22:00 UTC → Viernes 21:00 UTC.
+    Pausa diaria 21:00–22:00 UTC. Sábado: cerrado.
+    """
+    ahora   = datetime.now(timezone.utc)
+    dia     = ahora.weekday()   # 0=lun … 4=vie, 5=sab, 6=dom
+    h_utc   = ahora.hour + ahora.minute / 60.0
+
+    if dia == 5:                        # sábado — cerrado todo el día
+        return False
+    if dia == 6 and h_utc < 22.0:      # domingo antes de 22:00 UTC — cerrado
+        return False
+    if dia == 4 and h_utc >= 21.0:     # viernes desde 21:00 UTC — cierre semanal
+        return False
+    if 21.0 <= h_utc < 22.0:           # pausa diaria todos los días
+        return False
+    return True
 
 
 def nombre_sesion_actual():
-    """Nombre informativo de la sesión actual (solo para logs)."""
+    """Nombre informativo de la sesión activa."""
+    if not en_sesion_activa():
+        ahora = datetime.now(timezone.utc)
+        if ahora.weekday() == 5:
+            return "Mercado cerrado (sábado)"
+        if ahora.weekday() == 6:
+            return "Mercado cerrado (domingo pre-apertura)"
+        return "Pausa diaria (21:00–22:00 UTC)"
     h = datetime.now(timezone.utc).hour + datetime.now(timezone.utc).minute / 60.0
-    if   0.0 <= h <  6.0: return "Asia/Tokyo"
+    if   0.0 <= h <  6.0: return "Sesión Asia/Tokyo"
     elif 6.0 <= h <  7.0: return "Pre-Londres"
-    elif 7.0 <= h < 11.0: return "Londres"
+    elif 7.0 <= h < 11.0: return "Sesión Londres"
     elif 11.0 <= h < 13.0: return "Pausa mediodía"
-    elif 13.0 <= h < 17.0: return "Nueva York"
+    elif 13.0 <= h < 17.0: return "Sesión Nueva York"
     elif 17.0 <= h < 21.0: return "NY tarde"
-    else:                   return "Madrugada"
+    else:                   return "Sesión Asia (madrugada)"
 
 
 # ─── 1. SENTIMIENTO CON CLAUDE ───────────────────────────
