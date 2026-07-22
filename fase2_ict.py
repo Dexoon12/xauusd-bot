@@ -340,7 +340,9 @@ def calcular_score(simbolo="XAUUSD"):
         if df is None or len(df) < 50:
             continue
 
+        ultima_vela = df.index[-1]
         precio = float(df["close"].iloc[-1])
+        print(f"  [{nombre}] última vela: {ultima_vela} | close: ${precio:.2f}")
         atr    = calcular_atr(df)
         ma20   = float(df["close"].rolling(20).mean().iloc[-1])
         ma50   = float(df["close"].rolling(50).mean().iloc[-1])
